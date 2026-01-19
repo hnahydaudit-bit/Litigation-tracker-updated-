@@ -7,16 +7,17 @@ import os
 import json
 import re
 
-# 🔑 Configure Gemini
+# 🔑 Configure Gemini API
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # 🎨 Page setup
 st.set_page_config(page_title="LITIGATION TRACKER", page_icon="📂")
-st.title("📂 LITIGATION TRACKER")
+st.title("📂 GST LITIGATION TRACKER")
 
 # ---------- Helper Functions ----------
 
 def extract_text_from_pdf(file_path):
+    """Extract text from PDF using PyMuPDF"""
     text = ""
     with fitz.open(file_path) as doc:
         for page in doc:
@@ -25,30 +26,27 @@ def extract_text_from_pdf(file_path):
 
 
 def extract_with_ai(batch_texts):
+    """Extract litigation details including issue-wise amounts"""
+
     prompt = f"""
-You are a GST litigation expert AI.
+You are a senior GST litigation expert.
 
-For each document, extract details STRICTLY from the text.
-Do NOT guess or create dummy data.
-If something is not available, leave it blank.
+For EACH document, extract details and return a JSON ARRAY.
+Each document must be ONE JSON object.
 
-Return a JSON ARRAY. Each object must contain:
-
+Fields to extract:
 - Entity Name
 - GSTIN
-- Type of Notice / Order (System Update)
-- Description (1–2 line overall summary)
-- Issues & Amounts (Point-wise)  
-  → List each issue separately in short points  
-  → Mention corresponding Tax / Interest / Penalty for each issue  
-  → Keep it readable and concise
+- Type of Notice / Order
+- Description (brief 2–3 line summary)
+- Issues & Amounts (Issue-wise)
 - Ref ID
 - Date Of Issuance
 - Due Date
 - Case ID
-- Notice Type (ASMT-10 / ADT-01 / SCN / Appeal etc.)
+- Notice Type
 - Financial Year
-- Total Demand Amount as per Notice
+- Total Demand Amount
 - DIN No
 - Officer Name
 - Designation
@@ -58,41 +56,48 @@ Return a JSON ARRAY. Each object must contain:
 - Penalty
 - Source
 
-IMPORTANT:
-- Issues & Amounts must be factual and extracted from notice
-- Use numbered points
-- Return ONLY valid JSON
-- No explanation text
+🔥 CRITICAL INSTRUCTION FOR "Issues & Amounts (Issue-wise)" 🔥
+- Identify EACH issue / allegation / discrepancy
+- Extract corresponding amount for EACH issue
+- Return ALL issues in ONE STRING using this EXACT format:
 
-DOCUMENTS:
+1. <Issue description> – ₹<amount>
+2. <Issue description> – ₹<amount>
+
+- If issue-wise breakup is NOT available, write:
+"Issue-wise breakup not mentioned in notice"
+
+Rules:
+- Do NOT guess or invent data
+- Leave blank if genuinely unavailable
+- Return ONLY valid JSON
+- No explanations, no markdown
+
+Documents:
 {json.dumps(batch_texts, indent=2)}
 """
 
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     response = model.generate_content(prompt)
 
-    text = response.candidates[0].content.parts[0].text
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-
-    if not match:
-        return []
-
     try:
-        return json.loads(match.group(0))
-    except:
+        raw_text = response.candidates[0].content.parts[0].text
+        match = re.search(r"\[.*\]", raw_text, re.DOTALL)
+        return json.loads(match.group(0)) if match else []
+    except Exception:
         return []
-
 
 # ---------- Streamlit UI ----------
 
 uploaded_files = st.file_uploader(
-    "📤 Upload your GST Notice PDFs",
+    "📤 Upload GST Notice / Order PDFs",
     type=["pdf"],
     accept_multiple_files=True
 )
 
 if uploaded_files:
-    st.info("⏳ Processing... please wait.")
+    st.info("⏳ Processing notices… please wait")
+
     batch_texts = []
 
     for uploaded in uploaded_files:
@@ -100,30 +105,30 @@ if uploaded_files:
             tmp.write(uploaded.read())
             tmp_path = tmp.name
 
-        text = extract_text_from_pdf(tmp_path)
-        os.remove(tmp_path)
+        extracted_text = extract_text_from_pdf(tmp_path)
+        batch_texts.append({
+            "Source": uploaded.name,
+            "Text": extracted_text[:6000]  # safety limit
+        })
 
-        if text.strip():
-            batch_texts.append({
-                "Source": uploaded.name,
-                "Text": text[:6000]  # safe limit
-            })
+        os.remove(tmp_path)
 
     results = extract_with_ai(batch_texts)
 
+    # ✅ Column order (Issues & Amounts AFTER Description)
     columns = [
         "Entity Name",
         "GSTIN",
-        "Type of Notice / Order (System Update)",
+        "Type of Notice / Order",
         "Description",
-        "Issues & Amounts (Point-wise)",
+        "Issues & Amounts (Issue-wise)",
         "Ref ID",
         "Date Of Issuance",
         "Due Date",
         "Case ID",
         "Notice Type",
         "Financial Year",
-        "Total Demand Amount as per Notice",
+        "Total Demand Amount",
         "DIN No",
         "Officer Name",
         "Designation",
@@ -136,15 +141,16 @@ if uploaded_files:
 
     df = pd.DataFrame(results, columns=columns)
 
-    st.success("🎉 Excel summary generated successfully")
+    st.success("✅ Extraction completed successfully")
     st.dataframe(df, use_container_width=True)
 
-    out_path = "litigation_tracker_output.xlsx"
-    df.to_excel(out_path, index=False)
+    # Download Excel
+    output_file = "Litigation_Tracker_Output.xlsx"
+    df.to_excel(output_file, index=False)
 
-    with open(out_path, "rb") as f:
+    with open(output_file, "rb") as f:
         st.download_button(
-            "📥 Download Excel Summary",
+            label="📥 Download Excel",
             data=f,
             file_name="Litigation_Tracker_Output.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
