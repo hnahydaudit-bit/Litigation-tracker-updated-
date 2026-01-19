@@ -7,151 +7,128 @@ import os
 import json
 import re
 
-# 🔑 Configure Gemini API
+# ================= CONFIG =================
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# 🎨 Page setup
-st.set_page_config(page_title="LITIGATION TRACKER", page_icon="📂")
-st.title("📂 GST LITIGATION TRACKER")
+st.set_page_config(
+    page_title="GST Litigation Tracker",
+    page_icon="📂",
+    layout="wide"
+)
 
-# ---------- Helper Functions ----------
+st.title("📂 GST Litigation Tracker")
+st.caption("AI-assisted extraction of Issues & Tax Amounts from GST Notices")
 
-def extract_text_from_pdf(file_path):
-    """Extract text from PDF using PyMuPDF"""
+# ================= HELPERS =================
+
+def extract_text_from_pdf(path):
     text = ""
-    with fitz.open(file_path) as doc:
+    with fitz.open(path) as doc:
         for page in doc:
             text += page.get_text("text")
     return text.strip()
 
-
-def extract_with_ai(batch_texts):
-    """Extract litigation details including issue-wise amounts"""
-
+def extract_issues_and_tax(text, source_name):
+    """
+    Extract ALL issues and corresponding tax amounts.
+    """
     prompt = f"""
-You are a senior GST litigation expert.
+You are a GST litigation expert.
 
-For EACH document, extract details and return a JSON ARRAY.
-Each document must be ONE JSON object.
+Extract ALL issues / allegations / discrepancies mentioned in the notice below.
+Each issue must be separate (do NOT merge).
+Scan the entire document including annexures, tables and statements.
 
-Fields to extract:
-- Entity Name
-- GSTIN
-- Type of Notice / Order
-- Description (brief 2–3 line summary)
-- Issues & Amounts (Issue-wise)
-- Ref ID
-- Date Of Issuance
-- Due Date
-- Case ID
-- Notice Type
-- Financial Year
-- Total Demand Amount
-- DIN No
-- Officer Name
-- Designation
-- Area Division
-- Tax Amount
-- Interest
-- Penalty
-- Source
-
-🔥 CRITICAL INSTRUCTION FOR "Issues & Amounts (Issue-wise)" 🔥
-- Identify EACH issue / allegation / discrepancy
-- Extract corresponding amount for EACH issue
-- Return ALL issues in ONE STRING using this EXACT format:
-
-1. <Issue description> – ₹<amount>
-2. <Issue description> – ₹<amount>
-
-- If issue-wise breakup is NOT available, write:
-"Issue-wise breakup not mentioned in notice"
+For EACH issue, extract:
+- Issue (short, clear description)
+- Tax Amount related ONLY to that issue
 
 Rules:
-- Do NOT guess or invent data
-- Leave blank if genuinely unavailable
+- Do NOT summarise or club issues
+- Do NOT infer amounts
+- If amount not mentioned for an issue, leave it blank
 - Return ONLY valid JSON
-- No explanations, no markdown
+- Currency should be exactly as in notice
 
-Documents:
-{json.dumps(batch_texts, indent=2)}
+Return format (JSON array):
+[
+  {{
+    "issue": "...",
+    "tax_amount": "..."
+  }}
+]
+
+Document text:
+{text}
 """
 
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     response = model.generate_content(prompt)
 
-    try:
-        raw_text = response.candidates[0].content.parts[0].text
-        match = re.search(r"\[.*\]", raw_text, re.DOTALL)
-        return json.loads(match.group(0)) if match else []
-    except Exception:
-        return []
+    raw = response.candidates[0].content.parts[0].text
 
-# ---------- Streamlit UI ----------
+    match = re.search(r"\[.*\]", raw, re.DOTALL)
+    if not match:
+        return ""
+
+    try:
+        issues = json.loads(match.group(0))
+    except:
+        return ""
+
+    # Format into ONE cell
+    formatted = []
+    for idx, item in enumerate(issues, 1):
+        issue = item.get("issue", "").strip()
+        tax = item.get("tax_amount", "").strip()
+        line = f"{idx}. {issue}\n   Tax Amount: {tax}"
+        formatted.append(line)
+
+    return "\n\n".join(formatted)
+
+# ================= UI =================
 
 uploaded_files = st.file_uploader(
-    "📤 Upload GST Notice / Order PDFs",
+    "📤 Upload GST Notice PDFs",
     type=["pdf"],
     accept_multiple_files=True
 )
 
 if uploaded_files:
-    st.info("⏳ Processing notices… please wait")
+    st.info("⏳ Extracting issues and tax amounts… Please wait")
 
-    batch_texts = []
+    records = []
 
-    for uploaded in uploaded_files:
+    for file in uploaded_files:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(uploaded.read())
-            tmp_path = tmp.name
+            tmp.write(file.read())
+            path = tmp.name
 
-        extracted_text = extract_text_from_pdf(tmp_path)
-        batch_texts.append({
-            "Source": uploaded.name,
-            "Text": extracted_text[:6000]  # safety limit
+        text = extract_text_from_pdf(path)
+        os.remove(path)
+
+        issues_tax = extract_issues_and_tax(text[:12000], file.name)
+
+        records.append({
+            "Source File": file.name,
+            "Issues & Tax Amounts": issues_tax
         })
 
-        os.remove(tmp_path)
+    df = pd.DataFrame(records)
 
-    results = extract_with_ai(batch_texts)
+    st.success("✅ Extraction completed")
 
-    # ✅ Column order (Issues & Amounts AFTER Description)
-    columns = [
-        "Entity Name",
-        "GSTIN",
-        "Type of Notice / Order",
-        "Description",
-        "Issues & Amounts (Issue-wise)",
-        "Ref ID",
-        "Date Of Issuance",
-        "Due Date",
-        "Case ID",
-        "Notice Type",
-        "Financial Year",
-        "Total Demand Amount",
-        "DIN No",
-        "Officer Name",
-        "Designation",
-        "Area Division",
-        "Tax Amount",
-        "Interest",
-        "Penalty",
-        "Source"
-    ]
-
-    df = pd.DataFrame(results, columns=columns)
-
-    st.success("✅ Extraction completed successfully")
     st.dataframe(df, use_container_width=True)
 
-    # Download Excel
-    output_file = "Litigation_Tracker_Output.xlsx"
+    # Excel download
+    output_file = "GST_Litigation_Issues_Tax.xlsx"
     df.to_excel(output_file, index=False)
 
     with open(output_file, "rb") as f:
         st.download_button(
-            label="📥 Download Excel",
+            "📥 Download Excel",
             data=f,
-            file_name="Litigation_Tracker_Output.xlsx",
+            file_name=output_file,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
