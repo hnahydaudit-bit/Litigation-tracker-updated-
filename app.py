@@ -11,7 +11,7 @@ import re
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 st.set_page_config(
-    page_title="Litigation Tracker",
+    page_title="GST Litigation Tracker",
     page_icon="📂",
     layout="wide"
 )
@@ -26,16 +26,16 @@ def extract_text_from_pdf(path):
             text += page.get_text()
     return text.strip()
 
-# ---------------- AI EXTRACTION (SINGLE CALL) ----------------
+# ---------------- AI EXTRACTION (ONE CALL PER PDF) ----------------
 def extract_notice_details(text, source):
     prompt = f"""
 You are a GST litigation expert.
 
-Extract details ONLY from the notice text provided.
-Do NOT assume or fabricate anything.
-If a field is not available, leave it blank.
+Extract details ONLY from the notice text below.
+Do NOT assume, infer, or fabricate any value.
+If information is not available, leave it blank.
 
-Return ONLY valid JSON in the following structure:
+Return ONLY valid JSON in the exact structure:
 
 {{
   "Entity Name": "",
@@ -60,22 +60,23 @@ Return ONLY valid JSON in the following structure:
   "Source": "{source}"
 }}
 
-IMPORTANT RULES for "Issues & Tax Amounts":
-- List ALL issues / discrepancies / allegations mentioned in the notice
-- Each issue on a new line
-- Mention corresponding TAX amount if available
-- Do NOT include interest or penalty
+RULES for "Issues & Tax Amounts":
+- Extract ALL issues / discrepancies / allegations mentioned
+- Each issue must be on a NEW LINE
+- Mention only TAX amount (ignore interest & penalty)
 - Do NOT merge issues
-- Format exactly like:
+- Do NOT summarise
+- If amount not available, mention issue without amount
+- Format strictly as:
 
-Issue 1 – <short issue description> – ₹amount  
-Issue 2 – <short issue description> – ₹amount
+Issue 1 – <issue description> – ₹amount  
+Issue 2 – <issue description> – ₹amount
 
 Notice Text:
 {text}
 """
 
-    model = genai.GenerativeModel("models/gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-pro")
     response = model.generate_content(prompt)
 
     raw = response.text
@@ -99,20 +100,20 @@ uploaded_files = st.file_uploader(
 results = []
 
 if uploaded_files:
-    with st.spinner("Extracting details..."):
+    with st.spinner("Extracting notice details..."):
         for file in uploaded_files:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(file.read())
-                path = tmp.name
+                tmp_path = tmp.name
 
-            text = extract_text_from_pdf(path)
-            os.remove(path)
+            text = extract_text_from_pdf(tmp_path)
+            os.remove(tmp_path)
 
             if text:
-                # HARD LIMIT to avoid quota issues
-                data = extract_notice_details(text[:6000], file.name)
-                if data:
-                    results.append(data)
+                # HARD LIMIT → prevents quota issues
+                extracted = extract_notice_details(text[:6000], file.name)
+                if extracted:
+                    results.append(extracted)
 
     if results:
         columns = [
@@ -140,18 +141,18 @@ if uploaded_files:
 
         df = pd.DataFrame(results, columns=columns)
 
-        st.success("✅ Extraction completed")
+        st.success("✅ Extraction completed successfully")
         st.dataframe(df, use_container_width=True)
 
-        # Download Excel
-        out_file = "Litigation_Tracker_Output.xlsx"
-        df.to_excel(out_file, index=False)
+        output_file = "Litigation_Tracker_Output.xlsx"
+        df.to_excel(output_file, index=False)
 
-        with open(out_file, "rb") as f:
+        with open(output_file, "rb") as f:
             st.download_button(
                 "📥 Download Excel",
                 f,
                 file_name="Litigation_Tracker_Output.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
 
