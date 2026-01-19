@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import fitz  # PyMuPDF
+import fitz
 import google.generativeai as genai
 import tempfile
 import os
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 st.title("📂 GST Litigation Tracker")
-st.caption("AI-assisted extraction of Issues & Tax Amounts from GST Notices")
+st.caption("Accurate extraction of GST notice metadata + issues")
 
 # ================= HELPERS =================
 
@@ -28,29 +28,70 @@ def extract_text_from_pdf(path):
             text += page.get_text("text")
     return text.strip()
 
-def extract_issues_and_tax(text, source_name):
-    """
-    Extract ALL issues and corresponding tax amounts.
-    """
+def extract_metadata(text, source):
+    prompt = f"""
+Extract GST notice metadata.
+
+Return ONLY one JSON object with these keys:
+- Entity Name
+- GSTIN
+- Type of Notice / Order (System Update)
+- Description
+- Ref ID
+- Date Of Issuance
+- Due Date
+- Case ID
+- Notice Type
+- Financial Year
+- Total Demand Amount as per Notice
+- DIN No
+- Officer Name
+- Designation
+- Area Division
+
+Rules:
+- If not found, leave blank
+- No assumptions
+- Return ONLY valid JSON
+
+Document:
+{text}
+"""
+
+    model = genai.GenerativeModel("models/gemini-2.5-flash")
+    response = model.generate_content(prompt)
+    raw = response.candidates[0].content.parts[0].text
+
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        return {}
+
+    try:
+        data = json.loads(match.group(0))
+    except:
+        data = {}
+
+    data["Source"] = source
+    return data
+
+def extract_issues_and_tax(text):
     prompt = f"""
 You are a GST litigation expert.
 
-Extract ALL issues / allegations / discrepancies mentioned in the notice below.
-Each issue must be separate (do NOT merge).
-Scan the entire document including annexures, tables and statements.
+Extract ALL issues / discrepancies / allegations in the notice.
+Each issue must be separate.
 
-For EACH issue, extract:
-- Issue (short, clear description)
-- Tax Amount related ONLY to that issue
+For EACH issue extract:
+- Issue
+- Tax Amount
 
 Rules:
-- Do NOT summarise or club issues
-- Do NOT infer amounts
-- If amount not mentioned for an issue, leave it blank
-- Return ONLY valid JSON
-- Currency should be exactly as in notice
+- Do NOT merge issues
+- Do NOT infer
+- Scan annexures and tables
+- Return ONLY valid JSON array
 
-Return format (JSON array):
+Format:
 [
   {{
     "issue": "...",
@@ -58,13 +99,12 @@ Return format (JSON array):
   }}
 ]
 
-Document text:
+Document:
 {text}
 """
 
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     response = model.generate_content(prompt)
-
     raw = response.candidates[0].content.parts[0].text
 
     match = re.search(r"\[.*\]", raw, re.DOTALL)
@@ -76,13 +116,11 @@ Document text:
     except:
         return ""
 
-    # Format into ONE cell
     formatted = []
-    for idx, item in enumerate(issues, 1):
+    for i, item in enumerate(issues, 1):
         issue = item.get("issue", "").strip()
         tax = item.get("tax_amount", "").strip()
-        line = f"{idx}. {issue}\n   Tax Amount: {tax}"
-        formatted.append(line)
+        formatted.append(f"{i}. {issue}\n   Tax Amount: {tax}")
 
     return "\n\n".join(formatted)
 
@@ -95,9 +133,9 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    st.info("⏳ Extracting issues and tax amounts… Please wait")
+    st.info("⏳ Processing notices…")
 
-    records = []
+    rows = []
 
     for file in uploaded_files:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -107,28 +145,47 @@ if uploaded_files:
         text = extract_text_from_pdf(path)
         os.remove(path)
 
-        issues_tax = extract_issues_and_tax(text[:12000], file.name)
+        meta = extract_metadata(text[:8000], file.name)
+        issues = extract_issues_and_tax(text[:12000])
 
-        records.append({
-            "Source File": file.name,
-            "Issues & Tax Amounts": issues_tax
-        })
+        meta["Issues & Tax Amounts"] = issues
+        rows.append(meta)
 
-    df = pd.DataFrame(records)
+    df = pd.DataFrame(rows)
+
+    # Column order
+    ordered_cols = [
+        "Entity Name",
+        "GSTIN",
+        "Type of Notice / Order (System Update)",
+        "Description",
+        "Issues & Tax Amounts",
+        "Ref ID",
+        "Date Of Issuance",
+        "Due Date",
+        "Case ID",
+        "Notice Type",
+        "Financial Year",
+        "Total Demand Amount as per Notice",
+        "DIN No",
+        "Officer Name",
+        "Designation",
+        "Area Division",
+        "Source"
+    ]
+
+    df = df.reindex(columns=ordered_cols)
 
     st.success("✅ Extraction completed")
-
     st.dataframe(df, use_container_width=True)
 
-    # Excel download
-    output_file = "GST_Litigation_Issues_Tax.xlsx"
-    df.to_excel(output_file, index=False)
+    output = "GST_Litigation_Tracker.xlsx"
+    df.to_excel(output, index=False)
 
-    with open(output_file, "rb") as f:
+    with open(output, "rb") as f:
         st.download_button(
             "📥 Download Excel",
             data=f,
-            file_name=output_file,
+            file_name=output,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
