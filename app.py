@@ -7,13 +7,14 @@ import os
 import json
 import re
 
-# ================= CONFIG =================
+# 🔑 Configure Gemini
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
+# 🎨 Page setup
 st.set_page_config(page_title="LITIGATION TRACKER", page_icon="📂")
 st.title("📂 LITIGATION TRACKER")
 
-# ================= HELPERS =================
+# ---------- Helper Functions ----------
 
 def extract_text_from_pdf(file_path):
     text = ""
@@ -40,7 +41,7 @@ def detect_notice_type(text):
 
 def extract_with_ai(batch_texts):
     prompt = f"""
-You are a GST litigation expert.
+You are an expert in GST litigation notices.
 
 For EACH document below, return ONE JSON object.
 Return a JSON ARRAY.
@@ -68,57 +69,42 @@ Fields required:
 - Penalty
 - Source
 
-🔥 CRITICAL – DO NOT VIOLATE THESE RULES 🔥
+VERY IMPORTANT INSTRUCTIONS:
 
-1️⃣ Issues & Amounts (ABSOLUTELY EXHAUSTIVE)
-- Extract **EVERY issue mentioned in the notice**
-- This includes:
-  - main allegations
-  - minor discrepancies
-  - procedural lapses
-  - annexure points
-  - table-wise issues
-  - explanatory paragraphs
-- Do NOT filter
-- Do NOT prioritise
-- Do NOT club
-- Do NOT summarise
-- Do NOT omit minor issues
+1️⃣ Issues & Amounts (THIS IS CRITICAL)
+- Capture ALL issues mentioned in the notice (major + minor)
+- SIMPLIFY the wording into short, clear phrases
+- Do NOT copy long paragraphs
+- Do NOT explain
+- Do NOT add legal language
 
-2️⃣ Wording
-- Use wording as close as possible to the notice
-- Do NOT paraphrase
-- Do NOT generalise
+FORMAT STRICTLY AS:
+1. <short issue description> – ₹amount
+2. <short issue description> – ₹amount
 
-3️⃣ Formatting for Issues & Amounts
-- Number issues as:
-  1. <issue text> – ₹amount
-  2. <issue text> – ₹amount
-- Each issue on a NEW LINE
-- Mention ONLY TAX amount for that issue
-- Ignore interest and penalty here
-- If amount not mentioned, write exactly:
+Rules:
+- One issue per line
+- MUST be numbered
+- Mention ONLY TAX amount
+- Ignore interest & penalty here
+- If amount is not mentioned, write:
   "Amount not specified"
-- All amounts must be in INDIAN NUMBERING SYSTEM
+- Use Indian numbering format for amounts
 
-4️⃣ Description
+2️⃣ Description
 - 1–2 lines only
-- Must collectively reflect ALL issues
-- High-level umbrella summary
+- High-level summary covering ALL issues collectively
 - No amounts
 - No issue-wise listing
 
-5️⃣ Accuracy
-- Tax Amount, Interest, Penalty must be extracted EXACTLY as written
-- No calculation
-- No inference
-- No rounding
-- If not explicitly present, leave blank
+3️⃣ Accuracy
+- Tax Amount, Interest, Penalty must be EXACTLY as mentioned
+- Do NOT calculate or infer
+- Leave blank if not explicitly present
 
-6️⃣ Output rules
+4️⃣ Output rules
 - Return ONLY valid JSON
-- No markdown
-- No explanations
+- No markdown, no explanations
 
 Documents:
 {json.dumps(batch_texts, indent=2)}
@@ -138,7 +124,7 @@ Documents:
     except:
         return []
 
-# ================= UI =================
+# ---------- Streamlit UI ----------
 
 uploaded_files = st.file_uploader(
     "📤 Upload GST Notice PDFs",
