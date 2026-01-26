@@ -56,18 +56,18 @@ Fields required:
 CRITICAL INSTRUCTIONS (FOLLOW STRICTLY):
 
 1️⃣ Description (VERY IMPORTANT)
-- Keep this SHORT and HIGH-LEVEL
-- Maximum 1–2 lines
-- Purpose: give an OVERALL IDEA of why the notice is issued
-- Do NOT list issues here
-- Do NOT include amounts here
-Example:
-"Notice issued for alleged ITC irregularities and turnover mismatch for FY 2021-22."
+- Keep this SHORT (1–2 lines maximum)
+- It MUST collectively cover ALL issues raised in the notice
+- Do NOT list issues point-wise here
+- Do NOT mention amounts here
+- Summarise the nature of allegations as a whole
 
-2️⃣ Issues & Amounts (EXHAUSTIVE LIST)
+Example:
+"Notice issued alleging excess and ineligible ITC claims, turnover mismatch, and incorrect tax rate application for the relevant period."
+
+2️⃣ Issues & Amounts (EXHAUSTIVE)
 - Extract ALL issues / discrepancies / allegations mentioned ANYWHERE in the notice
-  (including annexures, tables, explanations, observations)
-- Do NOT skip minor issues
+- Include even minor issues
 - Each issue MUST be captured separately
 
 Formatting rules for Issues & Amounts:
@@ -76,17 +76,17 @@ Formatting rules for Issues & Amounts:
   2. Issue description – ₹amount
 - Each issue on a NEW LINE
 - Mention ONLY the TAX amount for that issue
-- Ignore interest and penalty for issue-wise breakup
+- Ignore interest and penalty here
 - If tax amount is not explicitly mentioned, write:
   "Amount not specified"
 - Do NOT merge issues
 - Do NOT summarise or paraphrase
-- Capture wording as close to notice language as possible
+- Keep wording close to notice language
 
-3️⃣ Accuracy & formatting rules
+3️⃣ Accuracy & formatting
 - Tax Amount, Interest and Penalty must be extracted EXACTLY as mentioned
-- Do NOT calculate, estimate, infer, round, or modify figures
-- All monetary amounts MUST be formatted in INDIAN NUMBERING SYSTEM
+- Do NOT calculate, estimate, infer, or modify figures
+- All monetary amounts MUST follow INDIAN NUMBERING SYSTEM
   Example: ₹12345678 → ₹1,23,45,678
 - If a value is not available, leave it blank
 
