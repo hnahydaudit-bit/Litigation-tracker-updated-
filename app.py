@@ -7,14 +7,13 @@ import os
 import json
 import re
 
-# 🔑 Configure Gemini (same working model & key)
+# ================= CONFIG =================
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# 🎨 Page setup
 st.set_page_config(page_title="LITIGATION TRACKER", page_icon="📂")
 st.title("📂 LITIGATION TRACKER")
 
-# ---------- Helper Functions ----------
+# ================= HELPER FUNCTIONS =================
 
 def extract_text_from_pdf(file_path):
     text = ""
@@ -23,9 +22,29 @@ def extract_text_from_pdf(file_path):
             text += page.get_text("text")
     return text.strip()
 
+def detect_notice_type(text):
+    """Rule-based detection for MAX accuracy"""
+    t = text.upper()
+
+    patterns = [
+        ("ASMT-10", r"ASMT[\s\-]*10"),
+        ("DRC-01", r"DRC[\s\-]*01"),
+        ("DRC-01A", r"DRC[\s\-]*01A"),
+        ("ADT-01", r"ADT[\s\-]*01"),
+        ("SCN", r"SHOW CAUSE NOTICE|SCN"),
+        ("APPEAL", r"APPEAL"),
+        ("ORDER", r"ORDER")
+    ]
+
+    for label, pattern in patterns:
+        if re.search(pattern, t):
+            return label
+
+    return ""  # leave blank if truly not found
+
 def extract_with_ai(batch_texts):
     prompt = f"""
-You are an expert in GST litigation notices.
+You are a GST litigation expert.
 
 For EACH document below, return ONE JSON object.
 Return a JSON ARRAY (list of objects).
@@ -53,46 +72,15 @@ Fields required:
 - Penalty
 - Source
 
-CRITICAL INSTRUCTIONS (FOLLOW STRICTLY):
+STRICT INSTRUCTIONS:
 
-1️⃣ Description (VERY IMPORTANT)
-- Keep this SHORT (1–2 lines maximum)
-- It MUST collectively cover ALL issues raised in the notice
-- Do NOT list issues point-wise here
-- Do NOT mention amounts here
-- Summarise the nature of allegations as a whole
-
-Example:
-"Notice issued alleging excess and ineligible ITC claims, turnover mismatch, and incorrect tax rate application for the relevant period."
-
-2️⃣ Issues & Amounts (EXHAUSTIVE)
-- Extract ALL issues / discrepancies / allegations mentioned ANYWHERE in the notice
-- Include even minor issues
-- Each issue MUST be captured separately
-
-Formatting rules for Issues & Amounts:
-- Number each issue as:
-  1. Issue description – ₹amount
-  2. Issue description – ₹amount
-- Each issue on a NEW LINE
-- Mention ONLY the TAX amount for that issue
-- Ignore interest and penalty here
-- If tax amount is not explicitly mentioned, write:
-  "Amount not specified"
-- Do NOT merge issues
-- Do NOT summarise or paraphrase
-- Keep wording close to notice language
-
-3️⃣ Accuracy & formatting
-- Tax Amount, Interest and Penalty must be extracted EXACTLY as mentioned
-- Do NOT calculate, estimate, infer, or modify figures
-- All monetary amounts MUST follow INDIAN NUMBERING SYSTEM
-  Example: ₹12345678 → ₹1,23,45,678
-- If a value is not available, leave it blank
-
-4️⃣ General rules
-- Return ONLY valid JSON
-- No explanations, no markdown, no comments
+1. Extract values ONLY if explicitly present.
+2. Do NOT guess or infer missing data.
+3. Description must be 1–2 lines and cover ALL issues collectively.
+4. Issues & Amounts must include ALL issues, numbered, issue-wise,
+   with TAX amount only (Indian numbering format).
+5. All amounts must be EXACTLY as mentioned in notice.
+6. Return ONLY valid JSON.
 
 Documents:
 {json.dumps(batch_texts, indent=2)}
@@ -101,9 +89,9 @@ Documents:
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     response = model.generate_content(prompt)
 
-    raw_text = response.candidates[0].content.parts[0].text
+    raw = response.candidates[0].content.parts[0].text
+    match = re.search(r"\[.*\]", raw, re.DOTALL)
 
-    match = re.search(r"\[.*\]", raw_text, re.DOTALL)
     if not match:
         return []
 
@@ -112,17 +100,18 @@ Documents:
     except:
         return []
 
-# ---------- Streamlit UI ----------
+# ================= STREAMLIT UI =================
 
 uploaded_files = st.file_uploader(
-    "📤 Upload your Notice PDFs",
+    "📤 Upload your GST Notice PDFs",
     type=["pdf"],
     accept_multiple_files=True
 )
 
 if uploaded_files:
-    st.info("⏳ Processing... please wait.")
+    st.info("⏳ Processing… Please wait.")
     batch_texts = []
+    notice_type_map = {}
 
     for uploaded in uploaded_files:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -130,15 +119,23 @@ if uploaded_files:
             tmp_path = tmp.name
 
         text = extract_text_from_pdf(tmp_path)
+        os.remove(tmp_path)
+
+        # Rule-based notice type detection
+        notice_type_map[uploaded.name] = detect_notice_type(text)
 
         batch_texts.append({
             "Source": uploaded.name,
             "Text": text
         })
 
-        os.remove(tmp_path)
-
     results = extract_with_ai(batch_texts)
+
+    # 🔥 OVERRIDE notice type if AI missed it
+    for row in results:
+        src = row.get("Source", "")
+        if not row.get("Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)"):
+            row["Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)"] = notice_type_map.get(src, "")
 
     columns = [
         "Entity Name",
@@ -165,16 +162,16 @@ if uploaded_files:
 
     df = pd.DataFrame(results, columns=columns)
 
-    st.success("🎉 Your Excel file is ready!")
+    st.success("✅ Extraction completed")
     st.dataframe(df, use_container_width=True)
 
-    out_path = "litigation_tracker_output.xlsx"
-    df.to_excel(out_path, index=False)
+    out_file = "litigation_tracker_output.xlsx"
+    df.to_excel(out_file, index=False)
 
-    with open(out_path, "rb") as f:
+    with open(out_file, "rb") as f:
         st.download_button(
-            label="📥 Download your Excel",
-            data=f,
+            "📥 Download Excel",
+            f,
             file_name="Litigation_Tracker_Output.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
