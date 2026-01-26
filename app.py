@@ -53,25 +53,42 @@ Fields required:
 - Penalty
 - Source
 
-Rules for "Issues & Amounts":
-- List each issue mentioned in the notice
-- Each issue on a new line
-- Mention TAX amount for each issue if available
-- Ignore interest and penalty
-- If amount not available, write "Amount not specified"
-- Do NOT summarise
-- Do NOT merge issues
+CRITICAL RULES – READ CAREFULLY:
 
-Other rules:
+1️⃣ Accuracy rules (VERY IMPORTANT)
+- Extract Tax Amount, Interest and Penalty EXACTLY as mentioned in the notice
+- Do NOT calculate, estimate, infer, round, or modify amounts
+- If an amount is not explicitly mentioned, leave it BLANK
+
+2️⃣ Formatting rules for amounts
+- All monetary amounts MUST be formatted in INDIAN NUMBERING SYSTEM
+  Example:
+  ₹12345678 → ₹1,23,45,678
+
+3️⃣ Rules for "Issues & Amounts"
+- Extract ALL issues / discrepancies / allegations mentioned in the notice
+- Issues MUST be NUMBERED as:
+  1. Issue description – ₹amount
+  2. Issue description – ₹amount
+- Each issue on a NEW LINE
+- Mention ONLY TAX amount for each issue
+- Ignore interest and penalty for issue-wise breakup
+- If tax amount is not mentioned for an issue, write:
+  "Amount not specified"
+- Do NOT merge issues
+- Do NOT summarise
+- Do NOT paraphrase
+
+4️⃣ General rules
 - If a field is not found, leave it blank
 - Return ONLY valid JSON
-- No explanations
+- No explanations, no markdown, no comments
 
 Documents:
 {json.dumps(batch_texts, indent=2)}
 """
 
-    # ✅ USE THE SAME WORKING MODEL
+    # ✅ SAME WORKING MODEL
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     response = model.generate_content(prompt)
 
