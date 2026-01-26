@@ -5,171 +5,161 @@ import google.generativeai as genai
 import tempfile
 import os
 import json
+import re
 
-# ================= CONFIG =================
+# 🔑 Configure Gemini (API key from Streamlit Cloud secrets)
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-generation_config = {
-    "temperature": 0.2,   # allow light reasoning
-    "top_p": 1,
-    "top_k": 1,
-    "max_output_tokens": 2048,
-}
+# 🎨 Page setup
+st.set_page_config(page_title="LITIGATION TRACKER", page_icon="📂")
+st.title("📂 LITIGATION TRACKER")
 
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    generation_config=generation_config,
-)
+# ---------- Helper Functions ----------
 
-st.set_page_config(
-    page_title="GST Litigation Tracker",
-    page_icon="📂",
-    layout="wide"
-)
-
-st.title("📂 GST Litigation Tracker")
-
-# ================= PDF TEXT EXTRACTION =================
-def extract_text_from_pdf(path):
+def extract_text_from_pdf(file_path):
+    """Extract text from PDF using PyMuPDF."""
     text = ""
-    with fitz.open(path) as doc:
+    with fitz.open(file_path) as doc:
         for page in doc:
-            text += page.get_text()
+            text += page.get_text("text")
     return text.strip()
 
-# 🔧 CLEAN TEXT (CRITICAL)
-def clean_text(text):
-    text = text.replace("\n", " ")
-    text = " ".join(text.split())
-    return text
-
-# ================= AI EXTRACTION =================
-def extract_notice_details(text, source):
+def extract_with_ai(batch_texts):
+    """Send all extracted texts at once to Gemini and ask for structured fields."""
     prompt = f"""
-You are a GST litigation expert.
+You are an expert in GST litigation and departmental notices.
 
-Extract details from the notice text below.
-Extract values if they are clearly mentioned or reasonably identifiable.
-Do NOT guess missing information.
+For EACH document below, extract the following fields and return
+a JSON ARRAY (list of objects).
 
-Return ONLY valid JSON in this structure:
+Required keys for EACH object:
 
-{{
-  "Entity Name": "",
-  "GSTIN": "",
-  "Notice Type": "",
-  "Section / Rule": "",
-  "Financial Year": "",
-  "Date Of Issuance": "",
-  "Due Date": "",
-  "Tax Amount": "",
-  "Interest": "",
-  "Penalty": "",
-  "Quick Summary": "",
-  "Source": "{source}"
-}}
+- Entity Name
+- GSTIN
+- Type of Notice / Order (System Update)
+- Description
+- Issues & Amounts
+- Ref ID
+- Date Of Issuance
+- Due Date
+- Case ID
+- Notice Type (ASMT-10 or ADT - 01 / SCN or Appeal)
+- Financial Year
+- Total Demand Amount as per Notice
+- DIN No
+- Officer Name
+- Designation
+- Area Division
+- Tax Amount
+- Interest
+- Penalty
+- Source  (file name)
 
-Quick Summary:
-- 1–2 lines explaining why the notice is issued
+VERY IMPORTANT RULES for "Issues & Amounts":
+- Extract ALL issues / discrepancies / allegations mentioned in the notice
+- Each issue must be on a NEW LINE
+- Mention ONLY the TAX amount for each issue (ignore interest & penalty)
+- If tax amount is not mentioned for an issue, write "Amount not specified"
+- Do NOT merge multiple issues
+- Do NOT summarise or paraphrase issues
+- Format strictly as:
 
-Notice Text:
-{text}
+Issue 1 – <issue description> – ₹amount  
+Issue 2 – <issue description> – ₹amount  
+
+Other Rules:
+- If a field is not found, leave it blank
+- Do NOT assume or guess values
+- Return ONLY valid JSON (no explanations, no markdown)
+
+Documents:
+{json.dumps(batch_texts, indent=2)}
 """
 
+    model = genai.GenerativeModel("models/gemini-2.5-flash")
+    resp = model.generate_content(prompt)
+
+    # Extract raw text response
+    data = resp.candidates[0].content.parts[0].text
+
+    # Extract JSON array safely
+    match = re.search(r"\[.*\]", data, re.DOTALL)
+    if not match:
+        return []
+
     try:
-        response = model.generate_content(prompt)
-        raw = response.text.strip()
+        return json.loads(match.group(0))
+    except:
+        return []
 
-        start = raw.find("{")
-        end = raw.rfind("}")
+# ---------- Streamlit UI ----------
 
-        if start == -1 or end == -1:
-            raise ValueError("No JSON")
-
-        return json.loads(raw[start:end + 1])
-
-    except Exception:
-        return {}
-
-# ================= UI =================
 uploaded_files = st.file_uploader(
-    "📤 Upload GST Notice PDFs",
+    "📤 Upload your Notice PDFs",
     type=["pdf"],
     accept_multiple_files=True
 )
 
-results = []
-
-# Empty row template (never allow blank output)
-def empty_row(source):
-    return {
-        "Entity Name": "",
-        "GSTIN": "",
-        "Notice Type": "",
-        "Section / Rule": "",
-        "Financial Year": "",
-        "Date Of Issuance": "",
-        "Due Date": "",
-        "Tax Amount": "",
-        "Interest": "",
-        "Penalty": "",
-        "Quick Summary": "Manual review required",
-        "Source": source
-    }
-
 if uploaded_files:
-    with st.spinner("Extracting notice details..."):
-        for file in uploaded_files:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(file.read())
-                tmp_path = tmp.name
+    st.info("⏳ Processing... please wait.")
+    batch_texts = []
 
-            raw_text = extract_text_from_pdf(tmp_path)
-            os.remove(tmp_path)
+    # Collect all texts first
+    for uploaded in uploaded_files:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(uploaded.read())
+            tmp_path = tmp.name
 
-            if raw_text:
-                text = clean_text(raw_text)
-                extracted = extract_notice_details(text[:7000], file.name)
+        text = extract_text_from_pdf(tmp_path)
+        batch_texts.append({
+            "Source": uploaded.name,
+            "Text": text
+        })
 
-                if not extracted:
-                    st.warning(f"⚠️ Manual review required for {file.name}")
-                    extracted = empty_row(file.name)
+        os.remove(tmp_path)
 
-                results.append(extracted)
+    # One AI call for all PDFs
+    results = extract_with_ai(batch_texts)
 
-            else:
-                st.warning(f"⚠️ No readable text in {file.name}")
-                results.append(empty_row(file.name))
-
-# ================= OUTPUT =================
-if results:
+    # Fixed column order (UPDATED)
     columns = [
         "Entity Name",
         "GSTIN",
-        "Notice Type",
-        "Section / Rule",
-        "Financial Year",
+        "Type of Notice / Order (System Update)",
+        "Description",
+        "Issues & Amounts",
+        "Ref ID",
         "Date Of Issuance",
         "Due Date",
+        "Case ID",
+        "Notice Type (ASMT-10 or ADT - 01 / SCN or Appeal)",
+        "Financial Year",
+        "Total Demand Amount as per Notice",
+        "DIN No",
+        "Officer Name",
+        "Designation",
+        "Area Division",
         "Tax Amount",
         "Interest",
         "Penalty",
-        "Quick Summary",
         "Source"
     ]
 
     df = pd.DataFrame(results, columns=columns)
 
-    st.success("✅ Processing completed")
+    # ✅ Success message
+    st.success("🎉 Your Excel file is ready!")
+
     st.dataframe(df, use_container_width=True)
 
-    output_file = "Litigation_Tracker_Output.xlsx"
-    df.to_excel(output_file, index=False)
+    # Download Excel
+    out_path = "litigation_tracker_output.xlsx"
+    df.to_excel(out_path, index=False)
 
-    with open(output_file, "rb") as f:
+    with open(out_path, "rb") as f:
         st.download_button(
-            "📥 Download Excel",
-            f,
+            label="📥 Download your Excel",
+            data=f,
             file_name="Litigation_Tracker_Output.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
