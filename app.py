@@ -7,7 +7,7 @@ import os
 import json
 import re
 
-# 🔑 Configure Gemini
+# 🔑 Configure Gemini (USE SAME MODEL AS WORKING PROJECT)
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # 🎨 Page setup
@@ -71,7 +71,8 @@ Documents:
 {json.dumps(batch_texts, indent=2)}
 """
 
-    model = genai.GenerativeModel("models/gemini-1.5-flash")
+    # ✅ USE THE SAME WORKING MODEL
+    model = genai.GenerativeModel("models/gemini-2.5-flash")
     response = model.generate_content(prompt)
 
     raw_text = response.candidates[0].content.parts[0].text
