@@ -6,7 +6,7 @@ import tempfile
 import os
 import json
 
-# ================== CONFIG ==================
+# ================= CONFIG =================
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 generation_config = {
@@ -16,7 +16,7 @@ generation_config = {
     "max_output_tokens": 2048,
 }
 
-# ✅ Create model ONCE (NO safety_settings → avoids KeyError)
+# Create model once (no safety_settings to avoid SDK issues)
 model = genai.GenerativeModel(
     model_name="gemini-1.5-flash",
     generation_config=generation_config,
@@ -30,7 +30,7 @@ st.set_page_config(
 
 st.title("📂 GST Litigation Tracker")
 
-# ================== PDF TEXT EXTRACTION ==================
+# ================= PDF TEXT EXTRACTION =================
 def extract_text_from_pdf(path):
     text = ""
     with fitz.open(path) as doc:
@@ -38,7 +38,7 @@ def extract_text_from_pdf(path):
             text += page.get_text()
     return text.strip()
 
-# ================== AI EXTRACTION ==================
+# ================= AI EXTRACTION =================
 def extract_notice_details(text, source):
     prompt = f"""
 You are a GST litigation expert.
@@ -84,15 +84,14 @@ Notice Text:
         end = raw.rfind("}")
 
         if start == -1 or end == -1:
-            raise ValueError("No JSON in response")
+            raise ValueError("No JSON returned")
 
         return json.loads(raw[start:end + 1])
 
     except Exception:
-        st.warning(f"⚠️ AI extraction failed for {source}")
         return {}
 
-# ================== UI ==================
+# ================= UI =================
 uploaded_files = st.file_uploader(
     "📤 Upload GST Notice PDFs",
     type=["pdf"],
@@ -100,6 +99,31 @@ uploaded_files = st.file_uploader(
 )
 
 results = []
+
+# Standard empty row template (VERY IMPORTANT)
+def empty_row(source):
+    return {
+        "Entity Name": "",
+        "GSTIN": "",
+        "Type of Notice / Order (System Update)": "",
+        "Description": "",
+        "Issues & Tax Amounts": "",
+        "Ref ID": "",
+        "Date Of Issuance": "",
+        "Due Date": "",
+        "Case ID": "",
+        "Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)": "",
+        "Financial Year": "",
+        "Total Demand Amount as per Notice": "",
+        "DIN No": "",
+        "Officer Name": "",
+        "Designation": "",
+        "Area Division": "",
+        "Tax Amount": "",
+        "Interest": "",
+        "Penalty": "",
+        "Source": source
+    }
 
 if uploaded_files:
     with st.spinner("Extracting notice details..."):
@@ -113,46 +137,54 @@ if uploaded_files:
 
             if text:
                 extracted = extract_notice_details(text[:6000], file.name)
-                if extracted:
-                    results.append(extracted)
 
-    if results:
-        columns = [
-            "Entity Name",
-            "GSTIN",
-            "Type of Notice / Order (System Update)",
-            "Description",
-            "Issues & Tax Amounts",
-            "Ref ID",
-            "Date Of Issuance",
-            "Due Date",
-            "Case ID",
-            "Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)",
-            "Financial Year",
-            "Total Demand Amount as per Notice",
-            "DIN No",
-            "Officer Name",
-            "Designation",
-            "Area Division",
-            "Tax Amount",
-            "Interest",
-            "Penalty",
-            "Source"
-        ]
+                # ALWAYS append a row (success or failure)
+                if not extracted:
+                    st.warning(f"⚠️ Manual review required for {file.name}")
+                    extracted = empty_row(file.name)
 
-        df = pd.DataFrame(results, columns=columns)
+                results.append(extracted)
 
-        st.success("✅ Extraction completed successfully")
-        st.dataframe(df, use_container_width=True)
+            else:
+                st.warning(f"⚠️ No readable text found in {file.name}")
+                results.append(empty_row(file.name))
 
-        df.to_excel("Litigation_Tracker_Output.xlsx", index=False)
+if results:
+    columns = [
+        "Entity Name",
+        "GSTIN",
+        "Type of Notice / Order (System Update)",
+        "Description",
+        "Issues & Tax Amounts",
+        "Ref ID",
+        "Date Of Issuance",
+        "Due Date",
+        "Case ID",
+        "Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)",
+        "Financial Year",
+        "Total Demand Amount as per Notice",
+        "DIN No",
+        "Officer Name",
+        "Designation",
+        "Area Division",
+        "Tax Amount",
+        "Interest",
+        "Penalty",
+        "Source"
+    ]
 
-        with open("Litigation_Tracker_Output.xlsx", "rb") as f:
-            st.download_button(
-                "📥 Download Excel",
-                f,
-                file_name="Litigation_Tracker_Output.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-    else:
-        st.info("No structured data could be extracted from the uploaded PDFs.")
+    df = pd.DataFrame(results, columns=columns)
+
+    st.success("✅ Processing completed")
+    st.dataframe(df, use_container_width=True)
+
+    output_file = "Litigation_Tracker_Output.xlsx"
+    df.to_excel(output_file, index=False)
+
+    with open(output_file, "rb") as f:
+        st.download_button(
+            "📥 Download Excel",
+            f,
+            file_name="Litigation_Tracker_Output.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
