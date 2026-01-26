@@ -5,10 +5,30 @@ import google.generativeai as genai
 import tempfile
 import os
 import json
-import re
 
-# ---------------- CONFIG ----------------
+# ================== CONFIG ==================
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+
+generation_config = {
+    "temperature": 0,
+    "top_p": 1,
+    "top_k": 1,
+    "max_output_tokens": 2048,
+}
+
+safety_settings = [
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUAL_CONTENT", "threshold": "BLOCK_NONE"},
+]
+
+# Create model ONCE (important)
+model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    generation_config=generation_config,
+    safety_settings=safety_settings,
+)
 
 st.set_page_config(
     page_title="GST Litigation Tracker",
@@ -18,7 +38,7 @@ st.set_page_config(
 
 st.title("📂 GST Litigation Tracker")
 
-# ---------------- PDF TEXT EXTRACTION ----------------
+# ================== PDF TEXT EXTRACTION ==================
 def extract_text_from_pdf(path):
     text = ""
     with fitz.open(path) as doc:
@@ -26,7 +46,7 @@ def extract_text_from_pdf(path):
             text += page.get_text()
     return text.strip()
 
-# ---------------- AI EXTRACTION (ONE CALL PER PDF) ----------------
+# ================== AI EXTRACTION ==================
 def extract_notice_details(text, source):
     prompt = f"""
 You are a GST litigation expert.
@@ -35,7 +55,7 @@ Extract details ONLY from the notice text below.
 Do NOT assume, infer, or fabricate any value.
 If information is not available, leave it blank.
 
-Return ONLY valid JSON in the exact structure:
+Return ONLY valid JSON in the following structure:
 
 {{
   "Entity Name": "",
@@ -61,40 +81,33 @@ Return ONLY valid JSON in the exact structure:
 }}
 
 RULES for "Issues & Tax Amounts":
-- Extract ALL issues / discrepancies / allegations mentioned
-- Each issue must be on a NEW LINE
-- Mention only TAX amount (ignore interest & penalty)
-- Do NOT merge issues
-- Do NOT summarise
-- If amount not available, mention issue without amount
-- Format strictly as:
-
-Issue 1 – <issue description> – ₹amount  
-Issue 2 – <issue description> – ₹amount
+- Extract ALL issues / discrepancies / allegations
+- Each issue on a NEW LINE
+- Mention only TAX amount
+- If amount not available, mention issue only
 
 Notice Text:
 {text}
 """
 
     try:
-        # ✅ UPDATED MODEL (FIXES NotFound ERROR)
-        model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(prompt)
+        raw = response.text.strip()
 
-        raw = response.text
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        start = raw.find("{")
+        end = raw.rfind("}")
 
-        if not match:
-            return {}
+        if start == -1 or end == -1:
+            raise ValueError("No JSON found in response")
 
-        return json.loads(match.group(0))
+        json_text = raw[start:end + 1]
+        return json.loads(json_text)
 
-    except Exception as e:
-        # Prevents demo crash
-        st.warning(f"AI extraction failed for {source}")
+    except Exception:
+        st.warning(f"⚠️ AI extraction failed for {source}")
         return {}
 
-# ---------------- UI ----------------
+# ================== UI ==================
 uploaded_files = st.file_uploader(
     "📤 Upload GST Notice PDFs",
     type=["pdf"],
@@ -114,7 +127,6 @@ if uploaded_files:
             os.remove(tmp_path)
 
             if text:
-                # HARD LIMIT → safe for API
                 extracted = extract_notice_details(text[:6000], file.name)
                 if extracted:
                     results.append(extracted)
@@ -158,5 +170,7 @@ if uploaded_files:
                 file_name="Litigation_Tracker_Output.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+    else:
+        st.info("No structured data could be extracted from the uploaded PDFs.")
 
 
