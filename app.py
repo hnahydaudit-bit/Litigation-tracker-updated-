@@ -7,7 +7,7 @@ import os
 import json
 import re
 
-# 🔑 Configure Gemini (USE SAME MODEL AS WORKING PROJECT)
+# 🔑 Configure Gemini (same working model & key)
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # 🎨 Page setup
@@ -53,34 +53,44 @@ Fields required:
 - Penalty
 - Source
 
-CRITICAL RULES – READ CAREFULLY:
+CRITICAL INSTRUCTIONS (FOLLOW STRICTLY):
 
-1️⃣ Accuracy rules (VERY IMPORTANT)
-- Extract Tax Amount, Interest and Penalty EXACTLY as mentioned in the notice
-- Do NOT calculate, estimate, infer, round, or modify amounts
-- If an amount is not explicitly mentioned, leave it BLANK
+1️⃣ Description (VERY IMPORTANT)
+- Keep this SHORT and HIGH-LEVEL
+- Maximum 1–2 lines
+- Purpose: give an OVERALL IDEA of why the notice is issued
+- Do NOT list issues here
+- Do NOT include amounts here
+Example:
+"Notice issued for alleged ITC irregularities and turnover mismatch for FY 2021-22."
 
-2️⃣ Formatting rules for amounts
-- All monetary amounts MUST be formatted in INDIAN NUMBERING SYSTEM
-  Example:
-  ₹12345678 → ₹1,23,45,678
+2️⃣ Issues & Amounts (EXHAUSTIVE LIST)
+- Extract ALL issues / discrepancies / allegations mentioned ANYWHERE in the notice
+  (including annexures, tables, explanations, observations)
+- Do NOT skip minor issues
+- Each issue MUST be captured separately
 
-3️⃣ Rules for "Issues & Amounts"
-- Extract ALL issues / discrepancies / allegations mentioned in the notice
-- Issues MUST be NUMBERED as:
+Formatting rules for Issues & Amounts:
+- Number each issue as:
   1. Issue description – ₹amount
   2. Issue description – ₹amount
 - Each issue on a NEW LINE
-- Mention ONLY TAX amount for each issue
+- Mention ONLY the TAX amount for that issue
 - Ignore interest and penalty for issue-wise breakup
-- If tax amount is not mentioned for an issue, write:
+- If tax amount is not explicitly mentioned, write:
   "Amount not specified"
 - Do NOT merge issues
-- Do NOT summarise
-- Do NOT paraphrase
+- Do NOT summarise or paraphrase
+- Capture wording as close to notice language as possible
+
+3️⃣ Accuracy & formatting rules
+- Tax Amount, Interest and Penalty must be extracted EXACTLY as mentioned
+- Do NOT calculate, estimate, infer, round, or modify figures
+- All monetary amounts MUST be formatted in INDIAN NUMBERING SYSTEM
+  Example: ₹12345678 → ₹1,23,45,678
+- If a value is not available, leave it blank
 
 4️⃣ General rules
-- If a field is not found, leave it blank
 - Return ONLY valid JSON
 - No explanations, no markdown, no comments
 
@@ -88,7 +98,6 @@ Documents:
 {json.dumps(batch_texts, indent=2)}
 """
 
-    # ✅ SAME WORKING MODEL
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     response = model.generate_content(prompt)
 
