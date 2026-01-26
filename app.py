@@ -13,7 +13,7 @@ genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 st.set_page_config(page_title="LITIGATION TRACKER", page_icon="📂")
 st.title("📂 LITIGATION TRACKER")
 
-# ================= HELPER FUNCTIONS =================
+# ================= HELPERS =================
 
 def extract_text_from_pdf(file_path):
     text = ""
@@ -23,31 +23,27 @@ def extract_text_from_pdf(file_path):
     return text.strip()
 
 def detect_notice_type(text):
-    """Rule-based detection for MAX accuracy"""
     t = text.upper()
-
     patterns = [
         ("ASMT-10", r"ASMT[\s\-]*10"),
-        ("DRC-01", r"DRC[\s\-]*01"),
         ("DRC-01A", r"DRC[\s\-]*01A"),
+        ("DRC-01", r"DRC[\s\-]*01"),
         ("ADT-01", r"ADT[\s\-]*01"),
-        ("SCN", r"SHOW CAUSE NOTICE|SCN"),
+        ("SCN", r"SHOW\s+CAUSE\s+NOTICE|SCN"),
         ("APPEAL", r"APPEAL"),
-        ("ORDER", r"ORDER")
+        ("ORDER", r"\bORDER\b")
     ]
-
-    for label, pattern in patterns:
-        if re.search(pattern, t):
+    for label, pat in patterns:
+        if re.search(pat, t):
             return label
-
-    return ""  # leave blank if truly not found
+    return ""
 
 def extract_with_ai(batch_texts):
     prompt = f"""
 You are a GST litigation expert.
 
 For EACH document below, return ONE JSON object.
-Return a JSON ARRAY (list of objects).
+Return a JSON ARRAY.
 
 Fields required:
 
@@ -72,15 +68,57 @@ Fields required:
 - Penalty
 - Source
 
-STRICT INSTRUCTIONS:
+🔥 CRITICAL – DO NOT VIOLATE THESE RULES 🔥
 
-1. Extract values ONLY if explicitly present.
-2. Do NOT guess or infer missing data.
-3. Description must be 1–2 lines and cover ALL issues collectively.
-4. Issues & Amounts must include ALL issues, numbered, issue-wise,
-   with TAX amount only (Indian numbering format).
-5. All amounts must be EXACTLY as mentioned in notice.
-6. Return ONLY valid JSON.
+1️⃣ Issues & Amounts (ABSOLUTELY EXHAUSTIVE)
+- Extract **EVERY issue mentioned in the notice**
+- This includes:
+  - main allegations
+  - minor discrepancies
+  - procedural lapses
+  - annexure points
+  - table-wise issues
+  - explanatory paragraphs
+- Do NOT filter
+- Do NOT prioritise
+- Do NOT club
+- Do NOT summarise
+- Do NOT omit minor issues
+
+2️⃣ Wording
+- Use wording as close as possible to the notice
+- Do NOT paraphrase
+- Do NOT generalise
+
+3️⃣ Formatting for Issues & Amounts
+- Number issues as:
+  1. <issue text> – ₹amount
+  2. <issue text> – ₹amount
+- Each issue on a NEW LINE
+- Mention ONLY TAX amount for that issue
+- Ignore interest and penalty here
+- If amount not mentioned, write exactly:
+  "Amount not specified"
+- All amounts must be in INDIAN NUMBERING SYSTEM
+
+4️⃣ Description
+- 1–2 lines only
+- Must collectively reflect ALL issues
+- High-level umbrella summary
+- No amounts
+- No issue-wise listing
+
+5️⃣ Accuracy
+- Tax Amount, Interest, Penalty must be extracted EXACTLY as written
+- No calculation
+- No inference
+- No rounding
+- If not explicitly present, leave blank
+
+6️⃣ Output rules
+- Return ONLY valid JSON
+- No markdown
+- No explanations
 
 Documents:
 {json.dumps(batch_texts, indent=2)}
@@ -100,16 +138,16 @@ Documents:
     except:
         return []
 
-# ================= STREAMLIT UI =================
+# ================= UI =================
 
 uploaded_files = st.file_uploader(
-    "📤 Upload your GST Notice PDFs",
+    "📤 Upload GST Notice PDFs",
     type=["pdf"],
     accept_multiple_files=True
 )
 
 if uploaded_files:
-    st.info("⏳ Processing… Please wait.")
+    st.info("⏳ Processing… please wait.")
     batch_texts = []
     notice_type_map = {}
 
@@ -121,7 +159,6 @@ if uploaded_files:
         text = extract_text_from_pdf(tmp_path)
         os.remove(tmp_path)
 
-        # Rule-based notice type detection
         notice_type_map[uploaded.name] = detect_notice_type(text)
 
         batch_texts.append({
@@ -131,7 +168,7 @@ if uploaded_files:
 
     results = extract_with_ai(batch_texts)
 
-    # 🔥 OVERRIDE notice type if AI missed it
+    # Override notice type if AI missed it
     for row in results:
         src = row.get("Source", "")
         if not row.get("Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)"):
