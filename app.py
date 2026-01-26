@@ -16,18 +16,10 @@ generation_config = {
     "max_output_tokens": 2048,
 }
 
-safety_settings = [
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_SEXUAL_CONTENT", "threshold": "BLOCK_NONE"},
-]
-
-# Create model ONCE (important)
+# ✅ Create model ONCE (NO safety_settings → avoids KeyError)
 model = genai.GenerativeModel(
     model_name="gemini-1.5-flash",
     generation_config=generation_config,
-    safety_settings=safety_settings,
 )
 
 st.set_page_config(
@@ -80,12 +72,6 @@ Return ONLY valid JSON in the following structure:
   "Source": "{source}"
 }}
 
-RULES for "Issues & Tax Amounts":
-- Extract ALL issues / discrepancies / allegations
-- Each issue on a NEW LINE
-- Mention only TAX amount
-- If amount not available, mention issue only
-
 Notice Text:
 {text}
 """
@@ -98,10 +84,9 @@ Notice Text:
         end = raw.rfind("}")
 
         if start == -1 or end == -1:
-            raise ValueError("No JSON found in response")
+            raise ValueError("No JSON in response")
 
-        json_text = raw[start:end + 1]
-        return json.loads(json_text)
+        return json.loads(raw[start:end + 1])
 
     except Exception:
         st.warning(f"⚠️ AI extraction failed for {source}")
@@ -160,10 +145,9 @@ if uploaded_files:
         st.success("✅ Extraction completed successfully")
         st.dataframe(df, use_container_width=True)
 
-        output_file = "Litigation_Tracker_Output.xlsx"
-        df.to_excel(output_file, index=False)
+        df.to_excel("Litigation_Tracker_Output.xlsx", index=False)
 
-        with open(output_file, "rb") as f:
+        with open("Litigation_Tracker_Output.xlsx", "rb") as f:
             st.download_button(
                 "📥 Download Excel",
                 f,
@@ -172,5 +156,3 @@ if uploaded_files:
             )
     else:
         st.info("No structured data could be extracted from the uploaded PDFs.")
-
-
