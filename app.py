@@ -10,13 +10,12 @@ import json
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 generation_config = {
-    "temperature": 0,
+    "temperature": 0.2,   # allow light reasoning
     "top_p": 1,
     "top_k": 1,
     "max_output_tokens": 2048,
 }
 
-# Create model once (no safety_settings to avoid SDK issues)
 model = genai.GenerativeModel(
     model_name="gemini-1.5-flash",
     generation_config=generation_config,
@@ -38,39 +37,40 @@ def extract_text_from_pdf(path):
             text += page.get_text()
     return text.strip()
 
+# 🔧 CLEAN TEXT (CRITICAL)
+def clean_text(text):
+    text = text.replace("\n", " ")
+    text = " ".join(text.split())
+    return text
+
 # ================= AI EXTRACTION =================
 def extract_notice_details(text, source):
     prompt = f"""
 You are a GST litigation expert.
 
-Extract details ONLY from the notice text below.
-Do NOT assume, infer, or fabricate any value.
-If information is not available, leave it blank.
+Extract details from the notice text below.
+Extract values if they are clearly mentioned or reasonably identifiable.
+Do NOT guess missing information.
 
-Return ONLY valid JSON in the following structure:
+Return ONLY valid JSON in this structure:
 
 {{
   "Entity Name": "",
   "GSTIN": "",
-  "Type of Notice / Order (System Update)": "",
-  "Description": "",
-  "Issues & Tax Amounts": "",
-  "Ref ID": "",
+  "Notice Type": "",
+  "Section / Rule": "",
+  "Financial Year": "",
   "Date Of Issuance": "",
   "Due Date": "",
-  "Case ID": "",
-  "Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)": "",
-  "Financial Year": "",
-  "Total Demand Amount as per Notice": "",
-  "DIN No": "",
-  "Officer Name": "",
-  "Designation": "",
-  "Area Division": "",
   "Tax Amount": "",
   "Interest": "",
   "Penalty": "",
+  "Quick Summary": "",
   "Source": "{source}"
 }}
+
+Quick Summary:
+- 1–2 lines explaining why the notice is issued
 
 Notice Text:
 {text}
@@ -84,7 +84,7 @@ Notice Text:
         end = raw.rfind("}")
 
         if start == -1 or end == -1:
-            raise ValueError("No JSON returned")
+            raise ValueError("No JSON")
 
         return json.loads(raw[start:end + 1])
 
@@ -100,28 +100,20 @@ uploaded_files = st.file_uploader(
 
 results = []
 
-# Standard empty row template (VERY IMPORTANT)
+# Empty row template (never allow blank output)
 def empty_row(source):
     return {
         "Entity Name": "",
         "GSTIN": "",
-        "Type of Notice / Order (System Update)": "",
-        "Description": "",
-        "Issues & Tax Amounts": "",
-        "Ref ID": "",
+        "Notice Type": "",
+        "Section / Rule": "",
+        "Financial Year": "",
         "Date Of Issuance": "",
         "Due Date": "",
-        "Case ID": "",
-        "Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)": "",
-        "Financial Year": "",
-        "Total Demand Amount as per Notice": "",
-        "DIN No": "",
-        "Officer Name": "",
-        "Designation": "",
-        "Area Division": "",
         "Tax Amount": "",
         "Interest": "",
         "Penalty": "",
+        "Quick Summary": "Manual review required",
         "Source": source
     }
 
@@ -132,13 +124,13 @@ if uploaded_files:
                 tmp.write(file.read())
                 tmp_path = tmp.name
 
-            text = extract_text_from_pdf(tmp_path)
+            raw_text = extract_text_from_pdf(tmp_path)
             os.remove(tmp_path)
 
-            if text:
-                extracted = extract_notice_details(text[:6000], file.name)
+            if raw_text:
+                text = clean_text(raw_text)
+                extracted = extract_notice_details(text[:7000], file.name)
 
-                # ALWAYS append a row (success or failure)
                 if not extracted:
                     st.warning(f"⚠️ Manual review required for {file.name}")
                     extracted = empty_row(file.name)
@@ -146,30 +138,23 @@ if uploaded_files:
                 results.append(extracted)
 
             else:
-                st.warning(f"⚠️ No readable text found in {file.name}")
+                st.warning(f"⚠️ No readable text in {file.name}")
                 results.append(empty_row(file.name))
 
+# ================= OUTPUT =================
 if results:
     columns = [
         "Entity Name",
         "GSTIN",
-        "Type of Notice / Order (System Update)",
-        "Description",
-        "Issues & Tax Amounts",
-        "Ref ID",
+        "Notice Type",
+        "Section / Rule",
+        "Financial Year",
         "Date Of Issuance",
         "Due Date",
-        "Case ID",
-        "Notice Type (ASMT-10 or ADT-01 / SCN / Appeal)",
-        "Financial Year",
-        "Total Demand Amount as per Notice",
-        "DIN No",
-        "Officer Name",
-        "Designation",
-        "Area Division",
         "Tax Amount",
         "Interest",
         "Penalty",
+        "Quick Summary",
         "Source"
     ]
 
