@@ -76,18 +76,22 @@ Notice Text:
 {text}
 """
 
-    model = genai.GenerativeModel("gemini-pro")
-    response = model.generate_content(prompt)
-
-    raw = response.text
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-
-    if not match:
-        return {}
-
     try:
+        # ✅ UPDATED MODEL (FIXES NotFound ERROR)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+
+        raw = response.text
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+
+        if not match:
+            return {}
+
         return json.loads(match.group(0))
-    except:
+
+    except Exception as e:
+        # Prevents demo crash
+        st.warning(f"AI extraction failed for {source}")
         return {}
 
 # ---------------- UI ----------------
@@ -110,7 +114,7 @@ if uploaded_files:
             os.remove(tmp_path)
 
             if text:
-                # HARD LIMIT → prevents quota issues
+                # HARD LIMIT → safe for API
                 extracted = extract_notice_details(text[:6000], file.name)
                 if extracted:
                     results.append(extracted)
